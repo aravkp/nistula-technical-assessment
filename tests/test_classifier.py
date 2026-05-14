@@ -63,7 +63,7 @@ def test_classifies_complaint(message):
 
 
 def test_complaint_beats_pricing_when_both_present():
-    msg = "Your rate of 25000 per night is unacceptable, we want a refund"
+    msg = "Your rate of 18000 per night is unacceptable, we want a refund"
     assert classify(msg).query_type == "complaint"
 
 

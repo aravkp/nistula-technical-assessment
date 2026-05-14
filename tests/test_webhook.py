@@ -50,7 +50,7 @@ def _reset_overrides():
 def test_happy_path_pricing_returns_high_confidence():
     stub = StubClaude(
         ClaudeDraft(
-            reply="Our base rate for Villa B1 is ₹25,000 per night.",
+            reply="Our base rate for Villa B1 is ₹18,000 per night (up to 4 guests).",
             self_confidence=0.95,
             uncertainty_flags=[],
         )
