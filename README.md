@@ -4,12 +4,11 @@ Technical assessment for the Nistula Summer Technology Internship 2026.
 
 ## Overview
 
-This repo implements an inbound-webhook service for guest messages from
-WhatsApp, Booking.com, Airbnb, Instagram and direct enquiries. It
-normalises the payload, classifies the query type with a small
-rule-based classifier, drafts a reply with Claude using a property
-context block, scores the draft's confidence, and routes the message to
-one of three actions: `auto_send`, `agent_review`, or `escalate`.
+A webhook that takes guest messages from WhatsApp, Booking.com, Airbnb,
+Instagram and direct enquiries, drafts a reply with Claude against the
+property's context, and routes each draft into one of three lanes —
+`auto_send`, `agent_review`, or `escalate` — based on a confidence
+score.
 
 ## Setup
 
@@ -67,10 +66,11 @@ Request path for `POST /webhook/message`:
 8. **Respond** — fixed JSON shape: `message_id`, `query_type`,
    `drafted_reply`, `confidence_score`, `action`.
 
-Claude API failures (network, timeout, parse, schema) are caught and
-turn into a degraded response: a generic acknowledgement, `confidence
-= 0.0`, and an `api_error` uncertainty flag. The webhook still returns
-`200` so upstream senders (WhatsApp, OTAs) don't retry into an outage.
+If the Claude call goes wrong — network, timeout, parse error, schema
+mismatch — the wrapper catches it and hands back a degraded draft: a
+generic acknowledgement, `confidence = 0.0`, and an `api_error` flag.
+The webhook still answers `200`, so WhatsApp and the OTAs don't end up
+retrying their way into a bigger outage.
 
 ## Confidence scoring logic
 
@@ -116,41 +116,41 @@ Action thresholds:
 
 ## Design notes & assumptions
 
-- **One property in scope.** The brief only mentions Villa B1, so the
-  property context is hardcoded in `property_context.py`. In production
-  it would be a row in the `properties` table from `schema.sql`.
-- **No persistence layer.** The webhook is stateless. The Part 2
-  `schema.sql` shows where messages, conversations, reservations and
-  guest identities would live, but the application code does not write
-  to a database.
-- **Classifier is rule-based, on purpose.** Six types with strong
-  keyword signal is a good fit for hand-written rules; an ML model
-  would add latency and a training-data dependency for marginal gain.
-  Version stamp (`classifier_version = "rules-v1"`) means we can
-  re-classify historical messages when the rules change.
+- **One property in scope.** Only Villa B1 was in scope, so the context
+  lives inline in `property_context.py`. In production it would be a
+  row in the `properties` table defined in `schema.sql`.
+- **No persistence layer.** The webhook is stateless — nothing writes
+  to a database. `schema.sql` shows where messages, conversations,
+  reservations and guest identities would land if it did.
+- **Classifier is rule-based, on purpose.** Six classes with strong
+  keyword signal don't need a model — rules are faster, easier to
+  debug, and have no training-data dependency. The
+  `classifier_version = "rules-v1"` stamp lets us re-classify history
+  whenever the rules change.
 - **Single `messages` table.** Inbound and outbound on every channel
-  go into one table with nullable role-specific columns. The reasoning
-  is in `schema.sql`'s "hardest design decision" stub — I left the
-  prose for you to write, but the code is structured to support that
-  argument.
+  share one table, with the role-specific columns nullable. The
+  reasoning lives in `schema.sql`'s "hardest design decision" stub —
+  I left that paragraph for you to write, but the schema is shaped to
+  back it up.
 - **Guest identity unification.** A `guests` row is a person; a
-  `guest_identities` row is one of their handles on one channel. This
-  separates "who" from "where we can reach them".
+  `guest_identities` row is one of their handles on one channel. The
+  split keeps "who they are" separate from "where to reach them".
 - **`reservation_id` is nullable on `conversations`.** Pre-sales
-  enquiries arrive before any booking exists.
+  enquiries arrive before any booking exists, so the link has to be
+  optional.
 
 ## What I'd do with more time
 
-- Persistence wiring (the schema exists; the writes don't).
-- Retry/backoff with jitter for transient Claude errors before falling
-  back to the degraded response.
-- A per-source rate limiter so a single noisy WhatsApp number can't
-  drain budget.
-- A small eval set for the classifier (say 200 labelled real messages)
-  plus a `pytest` job that fails CI if accuracy drops.
-- Multi-turn conversation state so the model has the last 5–10
-  exchanges of context instead of just the latest message.
-- A real availability lookup against the `reservations` table for
-  pre-sales availability queries (currently Claude is forced to hedge).
-- Outbound delivery: actually send the auto-replies via the channel
-  APIs and write the outbound row back to `messages`.
+- Persistence wiring — the schema exists, the writes don't.
+- Retry with jittered backoff on transient Claude errors before giving
+  up to the degraded reply.
+- Per-source rate limiting so one noisy WhatsApp number can't burn
+  through the token budget on its own.
+- An eval set of ~200 labelled real messages and a CI job that fails
+  when classifier accuracy regresses.
+- Multi-turn context so Claude sees the last 5–10 exchanges, not just
+  the latest message.
+- A real availability check against the `reservations` table for
+  pre-sales queries — right now Claude has to hedge.
+- Outbound delivery: actually post the auto-replies back through the
+  channel APIs and persist them as outbound rows in `messages`.
