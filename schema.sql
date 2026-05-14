@@ -214,7 +214,17 @@ CREATE INDEX idx_messages_inbound_review   ON messages (created_at DESC) WHERE d
 -- =====================================================================
 -- HARDEST DESIGN DECISION
 -- =====================================================================
--- TODO: write a short paragraph here explaining the hardest design
--- decision you made and why. Candidates: single messages table vs split
--- tables per channel, nullable reservation_id on conversations, guest
--- identity unification strategy.
+-- I put every message — inbound and outbound, on every channel — into
+-- one `messages` table, instead of splitting per channel or per
+-- direction. The cost is real: the table carries nullable role-specific
+-- columns (query_type and confidence_score for inbound; draft_origin
+-- and was_auto_sent for outbound), and I lean on CHECK constraints to
+-- stop either shape from being malformed. A split design would keep
+-- each table clean with no nullable columns, but rendering a single
+-- thread then means UNION-ing or joining multiple tables, and every
+-- new channel becomes another table and another migration. The
+-- single-table choice wins because every channel is fundamentally the
+-- same "text in / text out" shape, reads (rendering a thread) are far
+-- more frequent than the marginal cost of a few nullable columns, and
+-- the CHECK constraints recover most of the integrity a split would
+-- have given for free.
